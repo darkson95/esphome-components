@@ -23,6 +23,9 @@ namespace
     struct Driver : public virtual MeterCommonImplementation
     {
         Driver(MeterInfo &mi, DriverInfo &di);
+
+    protected:
+      void processContent(Telegram *t) override;
     };
 
     static bool ok = registerDriver([](DriverInfo&di)
@@ -34,6 +37,7 @@ namespace
         di.addDetection(MANUFACTURER_QDS, 0x04,  0x23);
         di.addDetection(MANUFACTURER_QDS, 0x04,  0x46);
         di.addDetection(MANUFACTURER_QDS, 0x37,  0x23);
+        di.usesProcessContent();
         di.setConstructor([](MeterInfo& mi, DriverInfo& di){ return std::shared_ptr<Meter>(new Driver(mi, di)); });
     });
 
@@ -148,6 +152,9 @@ namespace
             .set(MeasurementType::AtError)
             .set(VIFRange::Date)
             );
+    }
+
+    void Driver::processContent(Telegram *t) {
     }
 }
 
