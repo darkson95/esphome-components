@@ -142,22 +142,6 @@ namespace
     }
 }
 
-void Driver::processContent(Telegram *t) {
-    auto it = t->dv_entries.find("0DFF5F");
-    if (it == t->dv_entries.end()) {
-        return;
-    }
-    DVEntry entry = it->second.second;
-    if (entry.value.length() != 53 * 2) {
-        return;
-    }
-    qdsExtractWalkByField(t, this, entry, 24, 8, "0C13", "total", Quantity::Volume);
-    qdsExtractWalkByField(t, this, entry, 32, 4, "426C", "due", Quantity::PointInTime);
-    qdsExtractWalkByField(t, this, entry, 36, 8, "4C13", "due_date", Quantity::Volume);
-    qdsExtractWalkByField(t, this, entry, 44, 4, "C2086C", "due_17", Quantity::PointInTime);
-    qdsExtractWalkByField(t, this, entry, 48, 8, "CC0813", "due_17_date", Quantity::Volume);
-}
-
 // Test: MyQWater qwater 12353648 NOKEY
 // telegram=|374493444836351218067ac70000200c13911900004c1391170000426cbf2ccc081391170000c2086cbf2c02bb560000326cffff046d1e02de21fed0|
 // {"media":"warm water","meter":"qwater","name":"MyQWater","id":"12353648","status":"OK","total_m3":1.991,"due_date_m3":1.791,"due_date":"2021-12-31","due_17_date_m3":1.791,"due_17_date":"2021-12-31","error_date":"2128-03-31","volume_flow_m3h":0,"meter_datetime":"2022-01-30 02:30","timestamp":"1111-11-11T11:11:11Z"}
