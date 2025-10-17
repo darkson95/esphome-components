@@ -23,6 +23,8 @@ namespace
     struct Driver : public virtual MeterCommonImplementation
     {
         Driver(MeterInfo &mi, DriverInfo &di);
+    protected:
+        void processContent(Telegram *t) override;
     };
 
     static bool ok = registerDriver([](DriverInfo&di)
@@ -48,6 +50,7 @@ namespace
         di.addDetection(MANUFACTURER_QDS, 0x07,  0x19);
         di.addDetection(MANUFACTURER_QDS, 0x06,  0x35);
         di.addDetection(MANUFACTURER_QDS, 0x07,  0x35);
+        di.usesProcessContent();
 
         di.setConstructor([](MeterInfo& mi, DriverInfo& di){ return std::shared_ptr<Meter>(new Driver(mi, di)); });
     });
@@ -137,6 +140,9 @@ namespace
             Unit::DateLT
             );
     }
+}
+
+void Driver::processContent(Telegram *t) {
 }
 
 // Test: MyQWater qwater 12353648 NOKEY
