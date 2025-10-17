@@ -37,7 +37,6 @@ namespace
         di.addDetection(MANUFACTURER_QDS, 0x04,  0x23);
         di.addDetection(MANUFACTURER_QDS, 0x04,  0x46);
         di.addDetection(MANUFACTURER_QDS, 0x37,  0x23);
-        di.usesProcessContent();
         di.setConstructor([](MeterInfo& mi, DriverInfo& di){ return std::shared_ptr<Meter>(new Driver(mi, di)); });
     });
 
@@ -152,56 +151,6 @@ namespace
             .set(MeasurementType::AtError)
             .set(VIFRange::Date)
             );
-    }
-
-    void Driver::processContent(Telegram *t) {
-        auto it = t->dv_entries.find("0779");
-        if (it != t->dv_entries.end()) {
-            std::vector<uchar> v;
-            auto entry = it->second.second;
-            hex2bin(entry.value.substr(0, 8), &v);
-            // FIXME PROBLEM
-            Address a;
-            a.id = tostrprintf("%02x%02x%02x%02x", v[3], v[2], v[1], v[0]);
-            t->addresses.push_back(a);
-            std::string info = "*** " + entry.value.substr(0, 8) + " tpl-id (" + t->addresses.back().id + ")";
-            t->addSpecialExplanation(entry.offset, 4, KindOfData::CONTENT, Understanding::FULL, info.c_str());
-
-            v.clear();
-            hex2bin(entry.value.substr(8, 4), &v);
-            uint16_t tpl_mfct = *(uint16_t *) (&v[0]);
-            info = "*** " + entry.value.substr(8, 4) + " tpl-mfct (" + manufacturerFlag(tpl_mfct) + ")";
-            t->addSpecialExplanation(entry.offset + 4, 2, KindOfData::PROTOCOL, Understanding::FULL, info.c_str());
-
-            v.clear();
-            hex2bin(entry.value.substr(12, 2), &v);
-            uint8_t tpl_version = v[0];
-            info = "*** " + entry.value.substr(12, 2) + " tpl-version";
-            t->addSpecialExplanation(entry.offset + 6, 1, KindOfData::PROTOCOL, Understanding::FULL, info.c_str());
-
-            v.clear();
-            hex2bin(entry.value.substr(14, 2), &v);
-            uint8_t tpl_type = v[0];
-            info = "*** " + entry.value.substr(14, 2) + " tpl-type (" + mediaType(v[0], tpl_mfct) + ")";
-            t->addSpecialExplanation(entry.offset + 7, 1, KindOfData::PROTOCOL, Understanding::FULL, info.c_str());
-
-            t->tpl_id_found = true;
-            t->tpl_mfct = tpl_mfct;
-            t->tpl_version = tpl_version;
-            t->tpl_type = tpl_type;
-        }
-
-        it = t->dv_entries.find("0DFF5F");
-        if (it != t->dv_entries.end()) {
-            DVEntry entry = it->second.second;
-            if (entry.value.length() == 53 * 2) {
-                qdsExtractWalkByField(t, this, entry, 24, 8, "0C05", "total_energy_consumption", Quantity::Energy);
-                qdsExtractWalkByField(t, this, entry, 32, 4, "426C", "last_year_date", Quantity::Text);
-                qdsExtractWalkByField(t, this, entry, 36, 8, "4C05", "last_year_energy_consumption", Quantity::Energy);
-                qdsExtractWalkByField(t, this, entry, 44, 4, "C2086C", "last_month_date", Quantity::Text);
-                qdsExtractWalkByField(t, this, entry, 48, 8, "CC0805", "last_month_energy_consumption", Quantity::Energy);
-            }
-        }
     }
 }
 
