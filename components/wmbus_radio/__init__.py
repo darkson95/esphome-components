@@ -26,6 +26,12 @@ CONF_RADIO_ID = "radio_id"
 CONF_ON_FRAME = "on_frame"
 CONF_RADIO_TYPE = "radio_type"
 CONF_MARK_AS_HANDLED = "mark_as_handled"
+CONF_BUSY_PIN = "busy_pin"
+CONF_FREQUENCY = "frequency"
+CONF_RX_GAIN = "rx_gain"
+CONF_RF_SWITCH = "rf_switch"
+CONF_SYNC_MODE = "sync_mode"
+CONF_HAS_TCXO = "has_tcxo"
 
 radio_ns = cg.esphome_ns.namespace("wmbus_radio")
 RadioComponent = radio_ns.class_("Radio", cg.Component)
@@ -43,14 +49,62 @@ TRANSCEIVER_NAMES = {
     if r.is_file()
 }
 
+_selected_radio_types = set()
+
+
+def _validate_radio_type(value):
+    value = cv.one_of(*TRANSCEIVER_NAMES, upper=True)(value)
+    _selected_radio_types.add(value)
+    return value
+
+RX_GAIN_OPTIONS = {
+    "BOOSTED": "RX_GAIN_BOOSTED",
+    "POWER_SAVING": "RX_GAIN_POWER_SAVING",
+}
+
+SYNC_MODE_OPTIONS = {
+    "NORMAL": "SYNC_MODE_NORMAL",
+    "ULTRA_LOW_LATENCY": "SYNC_MODE_ULTRA_LOW_LATENCY",
+}
+
+def FILTER_SOURCE_FILES():
+    """Return set of transceiver source files to exclude from compilation."""
+    exclude = set()
+    for name in TRANSCEIVER_NAMES - _selected_radio_types:
+        lower = name.lower()
+        exclude.add(f"transceiver_{lower}.cpp")
+        exclude.add(f"transceiver_{lower}.h")
+    return exclude
+
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(RadioComponent),
             cv.GenerateID(CONF_RADIO_ID): cv.declare_id(RadioTransceiver),
-            cv.Required(CONF_RADIO_TYPE): cv.one_of(*TRANSCEIVER_NAMES, upper=True),
-            cv.Required(CONF_RESET_PIN): pins.internal_gpio_output_pin_schema,
+            cv.Required(CONF_RADIO_TYPE): _validate_radio_type,
+            # Changed to gpio_output_pin_schema to support I/O expanders
+            cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
             cv.Required(CONF_IRQ_PIN): pins.internal_gpio_input_pin_schema,
+            # Optional BUSY pin for SX1262
+            cv.Optional(CONF_BUSY_PIN): pins.gpio_input_pin_schema,
+            # Operating frequency (CC1101 only). Range: 300–928 MHz. Default: 868.95 MHz
+            cv.Optional(CONF_FREQUENCY, default="868.95MHz"): cv.All(
+                cv.frequency,
+                cv.Range(min=300e6, max=928e6),
+            ),
+            # Optional RX gain mode for SX1262 (default: BOOSTED for better sensitivity)
+            cv.Optional(CONF_RX_GAIN, default="BOOSTED"): cv.one_of(
+                *RX_GAIN_OPTIONS, upper=True
+            ),
+            # Use DIO2 as RF switch control (SX1262 only, default: False)
+            cv.Optional(CONF_RF_SWITCH, default=False): cv.boolean,
+            # Sync mode for packet detection (SX1262 only, default: NORMAL)
+            cv.Optional(CONF_SYNC_MODE, default="NORMAL"): cv.one_of(
+                *SYNC_MODE_OPTIONS, upper=True
+            ),
+            # Use DIO3 to drive an external TCXO (SX1262 only, default: True)
+            cv.Optional(CONF_HAS_TCXO, default=True): cv.boolean,
             cv.Optional(CONF_ON_FRAME): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(FrameTrigger),
@@ -59,7 +113,7 @@ CONFIG_SCHEMA = (
             ),
         }
     )
-    .extend(spi.spi_device_schema())
+    .extend(spi.spi_device_schema(default_data_rate=1e6, default_mode="MODE0"))
     .extend(cv.COMPONENT_SCHEMA)
 )
 
@@ -72,11 +126,32 @@ async def to_code(config):
     )
     radio_var = cg.new_Pvariable(config[CONF_RADIO_ID])
 
-    reset_pin = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
-    cg.add(radio_var.set_reset_pin(reset_pin))
+    if CONF_RESET_PIN in config:
+        reset_pin = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
+        cg.add(radio_var.set_reset_pin(reset_pin))
 
     irq_pin = await cg.gpio_pin_expression(config[CONF_IRQ_PIN])
     cg.add(radio_var.set_irq_pin(irq_pin))
+
+    # Optional BUSY pin for SX1262
+    if CONF_BUSY_PIN in config:
+        busy_pin = await cg.gpio_pin_expression(config[CONF_BUSY_PIN])
+        cg.add(radio_var.set_busy_pin(busy_pin))
+
+    # Operating frequency
+    cg.add(radio_var.set_frequency_hz(int(config[CONF_FREQUENCY])))
+
+    # RX gain mode
+    cg.add(radio_var.set_rx_gain_mode(RX_GAIN_OPTIONS[config[CONF_RX_GAIN]]))
+
+    # RF switch (DIO2 control)
+    cg.add(radio_var.set_rf_switch(config[CONF_RF_SWITCH]))
+
+    # Sync mode
+    cg.add(radio_var.set_sync_mode(SYNC_MODE_OPTIONS[config[CONF_SYNC_MODE]]))
+
+    # TCXO via DIO3
+    cg.add(radio_var.set_tcxo(config[CONF_HAS_TCXO]))
 
     await spi.register_spi_device(radio_var, config)
     await cg.register_component(radio_var, config)

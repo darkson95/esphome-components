@@ -22,8 +22,15 @@ static const char *TAG = "wmbus";
 void Radio::setup() {
   ASSERT_SETUP(this->packet_queue_ = xQueueCreate(3, sizeof(Packet *)));
 
+  // High priority to avoid FIFO overflow (fills in 5.12ms at 100kbps).
+  // Pin to core 1 on dual-core to avoid WiFi ISR preemption on core 0.
+#if portNUM_PROCESSORS > 1
+  ASSERT_SETUP(xTaskCreatePinnedToCore((TaskFunction_t)this->receiver_task, "radio_recv",
+                           8 * 1024, this, 24, &(this->receiver_task_handle_), 1));
+#else
   ASSERT_SETUP(xTaskCreate((TaskFunction_t)this->receiver_task, "radio_recv",
-                           3 * 1024, this, 2, &(this->receiver_task_handle_)));
+                           8 * 1024, this, 24, &(this->receiver_task_handle_)));
+#endif
 
   ESP_LOGI(TAG, "Receiver task created [%p]", this->receiver_task_handle_);
 
@@ -44,7 +51,7 @@ void Radio::loop() {
   if (!frame)
     return;
 
-  ESP_LOGI(TAG, "Have data (%zu bytes) [RSSI: %ddBm, mode: %s %s]",
+  ESP_LOGV(TAG, "Have data (%zu bytes) [RSSI: %ddBm, mode: %s %s]",
            frame->data().size(), frame->rssi(), toString(frame->link_mode()),
            frame->format().c_str());
 
@@ -53,7 +60,7 @@ void Radio::loop() {
     handler(&frame.value());
 
   if (frame->handlers_count())
-    ESP_LOGI(TAG, "Telegram handled by %d handlers", frame->handlers_count());
+    ESP_LOGV(TAG, "Telegram handled by %d handlers", frame->handlers_count());
   else {
     ESP_LOGW(TAG, "Telegram not handled by any handler");
     Telegram t;
@@ -76,32 +83,33 @@ void Radio::wakeup_receiver_task_from_isr(TaskHandle_t *arg) {
 }
 
 void Radio::receive_frame() {
-  this->radio->restart_rx();
-
   if (!ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(60000))) {
-    ESP_LOGD(TAG, "Radio interrupt timeout");
+    this->radio->restart_rx();
     return;
   }
+
   auto packet = std::make_unique<Packet>();
 
-  if (!this->radio->read_in_task(packet->rx_data_ptr(),
-                                 packet->rx_capacity())) {
-    ESP_LOGV(TAG, "Failed to read preamble");
+  if (!this->radio->read_in_task(packet->rx_data_ptr(), packet->rx_capacity(), 0)) {
+    this->radio->restart_rx();
     return;
   }
 
   if (!packet->calculate_payload_size()) {
-    ESP_LOGD(TAG, "Cannot calculate payload size");
+    this->radio->restart_rx();
     return;
   }
 
-  if (!this->radio->read_in_task(packet->rx_data_ptr(),
-                                 packet->rx_capacity())) {
-    ESP_LOGW(TAG, "Failed to read data");
+  if (!this->radio->read_in_task(packet->rx_data_ptr(), packet->rx_capacity(), 3)) {
+    this->radio->restart_rx();
     return;
   }
 
   packet->set_rssi(this->radio->get_rssi());
+
+  // Re-arm sync word detector for next packet
+  this->radio->restart_rx();
+
   auto packet_ptr = packet.get();
 
   if (xQueueSend(this->packet_queue_, &packet_ptr, 0) == pdTRUE) {
@@ -114,7 +122,6 @@ void Radio::receive_frame() {
 }
 
 void Radio::receiver_task(Radio *arg) {
-  int counter = 0;
   while (true)
     arg->receive_frame();
 }
