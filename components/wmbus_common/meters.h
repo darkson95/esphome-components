@@ -225,6 +225,15 @@ public:
 };
 
 bool registerDriver(std::function<void(DriverInfo &di)> setup);
+
+// A driver registers itself from a file-scope static initializer, and nothing
+// references any symbol inside a driver_*.cpp. Once the sources are archived
+// into a static library - as they are for native ESP-IDF builds - the linker
+// has no reason to pull those members in, so no driver ever registers and the
+// build still succeeds. KEEP_DRIVER exports a symbol that codegen references
+// from main.cpp, keeping the object file and its registration.
+#define KEEP_DRIVER(name) bool wmbus_driver_##name##_linked = true
+
 // Lookup (and load if necessary) driver from memory or disk.
 DriverInfo *lookupDriver(std::string name);
 bool lookupDriverInfo(const std::string &driver, DriverInfo *di = NULL);
@@ -262,7 +271,7 @@ enum PrintProperty {
                 // or null.
   DEPRECATED = 2, // This field is about to be removed or changed in a newer
                   // driver, which will have a new name.
-  STATUS = 4, // This is >the< status field and it should read OK of not error
+  STATUS_FIELD = 4, // This is >the< status field and it should read OK of not error
               // flags are set.
   INCLUDE_TPL_STATUS = 8,  // This text field also includes the tpl status
                            // decoding. multiple OK:s collapse to a single OK.
@@ -281,7 +290,7 @@ struct PrintProperties {
 
   bool hasREQUIRED() { return props_ & PrintProperty::REQUIRED; }
   bool hasDEPRECATED() { return props_ & PrintProperty::DEPRECATED; }
-  bool hasSTATUS() { return props_ & PrintProperty::STATUS; }
+  bool hasSTATUS() { return props_ & PrintProperty::STATUS_FIELD; }
   bool hasINCLUDETPLSTATUS() {
     return props_ & PrintProperty::INCLUDE_TPL_STATUS;
   }

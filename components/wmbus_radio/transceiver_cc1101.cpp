@@ -54,7 +54,7 @@ void CC1101::setup() {
   // Packet control 1: No address check, no append status, no CRC autoflush
   this->write_register(CC1101_PKTCTRL1, 0x00);
   // Packet control 0: Variable packet length, no whitening, no CRC
-  this->write_register(CC1101_PKTCTRL0, 0x00);
+  this->write_register(CC1101_PKTCTRL0, 0x02);
 
   // No device address filtering
   this->write_register(CC1101_ADDR, 0x00);
@@ -255,7 +255,7 @@ int8_t CC1101::get_rssi() {
   // Convert RSSI_dec to dBm: RSSI_dBm = (RSSI_dec / 2) - RSSI_offset
   // RSSI offset per TI DN505: 74 dBm for 868 MHz, 76 dBm for 433 MHz
   int8_t rssi_offset = (this->frequency_hz_ < 600000000u) ? 76 : 74;
-  int8_t rssi_dec = this->last_rssi_;
+  uint8_t rssi_dec = this->last_rssi_;
   int16_t rssi_dbm;
   if (rssi_dec >= 128) {
     rssi_dbm = ((int16_t)(rssi_dec - 256) / 2) - rssi_offset;
@@ -315,7 +315,7 @@ bool CC1101::read_in_task(uint8_t *buffer, size_t length, uint32_t offset) {
 
     // Timeout: 500ms without progress
     if (millis() - last_progress > 500) {
-      ESP_LOGW(TAG, "RX timeout after %zu bytes (need %zu)", total + offset, length + offset);
+      ESP_LOGW(TAG, "RX timeout after %lu bytes (need %lu)", (unsigned long)(total + offset), (unsigned long)(length + offset));
       return false;
     }
 

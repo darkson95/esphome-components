@@ -9,11 +9,10 @@ CONF_DRIVERS = "drivers"
 wmbus_common_ns = cg.esphome_ns.namespace("wmbus_common")
 WMBusCommon = wmbus_common_ns.class_("WMBusCommon", cg.Component)
 
-# Enable .cc files to be picked up as source files (wmbusmeters library uses .cc)
-SOURCE_FILE_EXTENSIONS.add(".cc")
+# Enable .cpp files to be picked up as source files (wmbusmeters library uses .cpp)
 
 AVAILABLE_DRIVERS = {
-    f.stem.removeprefix("driver_") for f in Path(__file__).parent.glob("driver_*.cc")
+    f.stem.removeprefix("driver_") for f in Path(__file__).parent.glob("driver_*.cpp")
 }
 
 _registered_drivers = set()
@@ -38,9 +37,30 @@ CONFIG_SCHEMA = cv.Schema(
 
 def FILTER_SOURCE_FILES():
     """Return set of driver source files to exclude from compilation."""
-    return {f"driver_{name}.cc" for name in AVAILABLE_DRIVERS - _registered_drivers}
+    return {f"driver_{name}.cpp" for name in AVAILABLE_DRIVERS - _registered_drivers}
+
+
+def _keep_symbol(driver):
+    """Symbol defined by KEEP_DRIVER() in driver_<name>.cpp."""
+    return f"wmbus_driver_{driver.replace('-', '_')}_linked"
 
 
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID], sorted(_registered_drivers))
     await cg.register_component(var, config)
+
+    # Reference each selected driver's KEEP_DRIVER symbol from main.cpp so the
+    # linker keeps its object file; see KEEP_DRIVER in meters.h.
+    drivers = sorted(_registered_drivers)
+    if not drivers:
+        return
+
+    for driver in drivers:
+        cg.add_global(cg.RawStatement(f"extern bool {_keep_symbol(driver)};"))
+
+    refs = ", ".join(f"&{_keep_symbol(driver)}" for driver in drivers)
+    cg.add_global(
+        cg.RawStatement(
+            f"static bool *const wmbus_kept_drivers[] __attribute__((used)) = {{{refs}}};"
+        )
+    )
